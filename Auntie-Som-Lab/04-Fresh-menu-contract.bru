@@ -1,0 +1,41 @@
+meta {
+  name: 04 - Fresh menu contract
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/menu
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+tests {
+  test("Menu is a JSON array with unique valid items", function () {
+    expect(res.getStatus()).to.equal(200);
+    const menu = res.getBody();
+    expect(menu).to.be.an("array").with.lengthOf(2);
+    expect(new Set(menu.map(x => x.id)).size).to.equal(menu.length);
+    menu.forEach(item => {
+      expect(Number.isInteger(item.id)).to.equal(true);
+      expect(item.name).to.be.a("string").and.not.empty;
+      expect(item.price).to.be.a("number").and.above(0);
+      expect(Number.isInteger(item.stock)).to.equal(true);
+      expect(item.stock).to.be.at.least(0);
+    });
+  });
+  test("Fixture has advertised prices and fresh stock (restart app before every run)", function () {
+    const menu = res.getBody();
+    const primary = menu.find(x => x.id === Number(bru.getEnvVar("primaryItemId")));
+    const edge = menu.find(x => x.id === Number(bru.getEnvVar("edgeItemId")));
+    expect(primary.price).to.equal(Number(bru.getEnvVar("expectedPrimaryPrice")));
+    expect(primary.stock).to.equal(2);
+    expect(edge.price).to.equal(Number(bru.getEnvVar("expectedEdgePrice")));
+    expect(edge.stock).to.equal(1);
+  });
+}
+

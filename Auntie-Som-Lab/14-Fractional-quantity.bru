@@ -1,0 +1,67 @@
+meta {
+  name: 14 - Fractional quantity
+  type: http
+  seq: 14
+}
+
+post {
+  url: {{baseUrl}}/orders
+  body: json
+  auth: none
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {"itemId": {{edgeItemId}}, "quantity": 0.5}
+}
+
+script:pre-request {
+  if (!bru.getEnvVar("accessToken")) throw new Error("SETUP: run request 01 Login first");
+
+  const menuResponse = await bru.sendRequest({
+    method: "GET", url: bru.getEnvVar("baseUrl") + "/menu", timeout: 10000
+  });
+  if (menuResponse.status !== 200 || !Array.isArray(menuResponse.data)) {
+    throw new Error("SETUP: /menu must return 200 and an array before this scenario");
+  }
+  bru.setVar("beforeMenu", JSON.stringify(menuResponse.data));
+
+  const edgeItem = menuResponse.data.find(x => x.id === Number(bru.getEnvVar("edgeItemId")));
+  if (!edgeItem || edgeItem.stock <= 0) throw new Error("SETUP: item 2 needs positive stock; restart the API and rerun in sequence");
+}
+
+tests {
+  test("Fractional quantity: correct rejection HTTP status", function () {
+    expect(res.getStatus()).to.be.oneOf([400, 422]);
+  });
+  test("Fractional quantity: error body cannot masquerade as an order", function () {
+    const data = res.getBody();
+    expect(data).to.be.an("object");
+    expect(data.error).to.be.a("string").and.not.empty;
+    expect(data).not.to.have.property("orderId");
+    expect(data.status).not.to.equal("created");
+  });
+
+  const menuAfter = await bru.sendRequest({
+    method: "GET", url: bru.getEnvVar("baseUrl") + "/menu", timeout: 10000
+  });
+  test("Stock verification request succeeds", function () {
+    expect(menuAfter.status).to.equal(200);
+    expect(menuAfter.data).to.be.an("array");
+  });
+
+  test("Rejected request leaves the entire menu unchanged", function () {
+    const normalize = items => items.slice().sort((a, b) => a.id - b.id);
+    expect(normalize(menuAfter.data)).to.deep.equal(normalize(JSON.parse(bru.getVar("beforeMenu"))));
+  });
+}
+
+docs {
+  Expected rejection and an error payload. For order attempts, a second GET /menu proves there was no stock mutation. Assertion failures are intentional evidence of backend bugs.
+}
+

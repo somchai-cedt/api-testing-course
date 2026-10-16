@@ -1,156 +1,62 @@
-# 🍜 API Testing Lab: Auntie Som’s Noodle Stall
+# Auntie Som Lab — automated Bruno API audit
 
-> **Objective:** Prove that Nephew Lek’s "it works on my machine" attitude is a recipe for disaster.
+An importable Bruno collection for the supplied Auntie Som Noodle Stall Flask API. It checks business rules with executable JavaScript tests, extracts the login token automatically, calculates expected prices independently, and checks inventory before and after order attempts. **No changes were made to `app.py`.**
 
----
+## Verified result
 
-## 📖 The Backstory
+Tested on 2026-10-16 with Bruno CLI **4.2.1**, Python **3.12**, and Flask **3.1.3**, using the backend from `api-testing-course-main.zip`.
 
-Auntie Som runs a **legendary noodle stall**. Her Tom Yum is world-class, her customers are loyal, and her business is booming.  
+- 23 requests executed; no request setup or transport errors.
+- 9 requests passed all their checks; 14 requests had failing checks.
+- **50 of 79 JavaScript test checks passed; 29 failed.**
+- Bruno exited with code **1**, correctly reporting the broken business rules.
 
-Recently, her nephew **Lek** (who just finished a 2-week coding bootcamp) decided to "digitize" the business. He built a backend API to handle online orders. Auntie Som is thrilled, but the code… well, Lek says:  
+## Bugs discovered and how the tests detect them
 
-> *"It’s fine lah Auntie! I tested it once with my own phone. No need for professional testing!"*
+| Bug | Observed behavior | Automated detection |
+| --- | --- | --- |
+| B01: Incorrect order total | Two Tom Yum Noodles cost 50 each, but POST returns **95**, and GET persists **95**, instead of **100**. Source subtracts an unexplained 5. | Requests **08–09** compare both POST and GET totals against `menu.price * quantity`, calculated before ordering. They do not use the incorrect POST total as the expected GET total. |
+| B02: Missing order returns success status | GET of `ORD-does-not-exist-lab` returns **200** with `{"error":"Order not found"}`. | Request **11** requires **404** and an error object with no order fields. |
+| B03: Zero, negative, and fractional quantities accepted | Quantity **0** creates an order with total **-5**; **-1** creates an order and increases stock; **0.5** creates an order and makes stock fractional. | Requests **12–14** require a validation error and no order ID/created status. They also compare the complete menu before and after each attempt. The zero test detects order creation even though stock does not change. |
+| B04: Invalid quantity types cause server errors | String `"1"`, missing quantity, and `null` produce **500** HTML error pages. | Requests **15–17** require **400 or 422**, a JSON error object, and unchanged stock. A 500 cannot pass as an acceptable rejection. |
+| B05: Invalid request shapes cause server errors | Array `itemId: []` and array JSON body `[]` produce **500**. | Requests **19–20** require a validation error and unchanged inventory. |
+| B06: Bearer authentication syntax is not enforced | `Authorization: <valid token>` is accepted without the required `Bearer ` prefix, creating an order and reducing stock. This requires a real issued token; random tokens remain rejected. | Request **21** deliberately uses the saved token without the prefix, requires **401**, rejects an order-shaped response, and verifies that stock did not change. |
+| B07: Stock limit is not enforced | The code checks only whether stock is already zero or negative. It accepts a quantity larger than remaining stock, then makes stock negative. | Request **22** reads live stock and sends `floor(stock) + 1`. It requires **400 or 409**, an error object, and unchanged inventory. Request **23** separately checks integer stock and nonnegative stock. |
 
-**You are the Last Line of Defense.**  
-Before Auntie Som launches this app to 1,000+ hungry customers, you must audit the system, find the logic flaws, and automate the validation using **Bruno**.
+In the recorded sequential run, item 2 starts with stock **1**. The buggy negative request raises it to **2**, the fractional request reduces it to **1.5**, the malformed auth request reduces it to **0.5**, and the overstock request sends quantity **1**, leaving **-0.5**. Each mutation test compares its own live before/after snapshots, so later failures do not depend on assuming earlier invalid requests were harmless.
 
----
+Passing controls demonstrate that login extraction, valid bearer auth, bad-password rejection, unknown-user rejection, missing-auth rejection, random-token rejection, unknown-item rejection, exact stock deduction, missing-item rejection, and already-sold-out rejection work. The valid order request passes its creation and stock checks while failing its independent price check.
 
-## 🎯 Learning Objectives
+The provided reference example also shows a total of 45 for an item priced at 50. This audit treats menu price multiplied by quantity as the intended rule because no discount is specified. A documented discount would require revising that expectation.
 
-By the end of this lab, you should be able to:
-- 🖋️ Write **Bruno test scripts** for automated validation.
-- 📦 Extract values from API responses using **Post-response scripts**.
-- 🔐 Manage and use **Environment Variables**.
-- 🧠 Verify **Business Rules**, not just HTTP status codes.
-- 🚀 Catch regressions automatically before they hit production.
+## Files
 
----
+```text
+Auntie-Som-Lab/
+  bruno.json                  # Open this folder as a Bruno collection
+  01-Login.bru ... 23-Final-inventory-integrity.bru
+  environments/
+    local.bru                 # Ready to use; ignored by Git
+README.md
+.gitignore
+```
 
-## 🛠️ Setup Instructions
+## Environment and script behavior
 
-### 1️⃣ Prepare the Project
-- **Fork this repository** to your own GitHub account.
-- **Clone it** locally to your machine.
+| Variable | Default / purpose |
+| --- | --- |
+| `baseUrl` | `http://localhost:5000`; every request and scripted menu lookup uses it. The helper overrides it for its local server. |
+| `username`, `password` | Public lab credentials `student` / `hungry`. |
+| `accessToken` | Blank initially. Automatically set by the login post-response script and used in subsequent bearer headers. Cleared by request 23. |
+| `invalidToken` | Deliberately invalid value used for the negative auth test. |
+| `primaryItemId`, `edgeItemId` | `1`, `2`; the first is used for the valid exact-stock order, the second for input and overstock cases. |
+| `validQuantity` | `2`, matching fresh stock for item 1. |
+| `expectedPrimaryPrice`, `expectedEdgePrice` | `50`, `45`, checked against the advertised fixture. |
 
-### 2️⃣ Start the API Server
-The backend is a lightweight Flask application.
-- **Requirements:** Python 3.10+ installed.
-- **Navigate** to the `auntie-som-noodle-api` folder.
-- **Install dependencies:**  
-  ```bash
-  pip install flask
-  ```
-- **Run the server:**  
-  ```bash
-  python app.py
-  ```
-- The server will run at: `http://localhost:5000`
+`orderId`, expected total, request quantity, and before-menu snapshots are runtime variables. The token is an **environment variable**, as required. A snapshot is taken before each order attempt, and an additional scripted GET verifies inventory afterward. Setup guards report missing tokens or stale fixtures as setup errors rather than silently skipping tests.
 
-### 3️⃣ Setup Bruno
-- Download and install [Bruno](https://www.usebruno.com).
-- Create a **New Collection** named `Auntie Som Lab`.
-- Create an **Environment** (e.g., `local`) and set a variable `baseUrl` to `http://localhost:5000`.
+Bruno CLI 4.x persists environment writes. Keep the generated **local.bru** ignored by Git; commit only the blank **local.example.bru** template. If a run is interrupted before request 23, clear the token in your local environment before sharing anything. The supplied `.gitignore` excludes local environments and new reports. The sanitized verified reports in `evidence/` are intentionally included.
 
----
+Negative validation policies accept the documented auth/item statuses and reasonable unspecified validation statuses: missing/invalid auth **401**, unknown item **404**, invalid quantity or malformed JSON shape **400/422**, insufficient stock **400/409**, missing order **404**. Successful creation accepts **200/201**. Error bodies must be objects with a nonempty string `error` and no created order. If a future API defines a different error schema, update these contract assertions intentionally.
 
-## 📑 API Reference
-
-### 🔐 Authentication
-`POST /auth/login` - Get an access token.
-- **Body (JSON):**
-  ```json
-  {
-    "username": "student",
-    "password": "hungry"
-  }
-  ```
-- **Response (200 OK):**
-  ```json
-  {
-    "accessToken": "uuid-token-string",
-    "expiresIn": 3600
-  }
-  ```
-
----
-
-### 🍜 Menu
-`GET /menu` - View available items and stock levels.
-- **Response (200 OK):**
-  ```json
-  [
-    { "id": 1, "name": "Tom Yum Noodles", "price": 50, "stock": 2 },
-    { "id": 2, "name": "Fried Rice", "price": 45, "stock": 1 }
-  ]
-  ```
-
----
-
-### 🛒 Orders
-`POST /orders` - Place a new order.
-- **Headers:** `Authorization: Bearer <token>`
-- **Body (JSON):**
-  ```json
-  {
-    "itemId": 1,
-    "quantity": 1
-  }
-  ```
-- **Response (200 OK):**
-  ```json
-  {
-    "orderId": "ORD-abc123",
-    "status": "created",
-    "totalPrice": 45
-  }
-  ```
-
-`GET /orders/<orderId>` - Retrieve order details.
-- **Response (200 OK):**
-  ```json
-  {
-    "orderId": "ORD-abc123",
-    "status": "created",
-    "totalPrice": 45
-  }
-  ```
-
----
-
-## 🕵️ Your Mission: The Silent Auditor
-
-Your task is to create a comprehensive Bruno collection that validates the entire workflow.  
-
-⚠️ **The Catch:** Nephew Lek left several **logic bugs** in the system. Some endpoints might return `200 OK` even when the business logic is completely broken.
-
-**Your collection must include:**
-1.  **Auth Flow**: Automatically store the `accessToken` from login and use it for subsequent requests.
-2.  **Order Validation**: Ensure orders can only be placed with valid auth, valid items, and available stock.
-3.  **Data Integrity**: Check that the `totalPrice` calculated by the API matches your expectations.
-4.  **Edge Cases**: What happens if you order more than what's in stock? What happens if you request a non-existent order?
-
-> [!TIP]
-> **Clicking "Send" is not testing.** Your tests must contain scripts (Assertions or Javascript) that **FAIL** when the system behaves incorrectly.
-
----
-
-## 🧠 Rules of the Lab
-- ❌ **Do NOT** modify the `app.py` backend code.
-- ❌ **Do NOT** rely on manual checking.
-- ✅ **Use environment variables** for the Base URL and Tokens.
-- ✅ **Use Scripts/Assertions** for all validations.
-
----
-
-## 📦 What to Submit
-
-1.  **Push your Bruno collection folder** to your GitHub repository.
-2.  **Update your README.md** (the one in your fork) with:
-    - A summary of the bugs you discovered.
-    - How your tests detect these bugs.
-4.  **Send the GitHub link** to your instructor via Discord.
-
----
-*Good luck. Auntie Som is counting on you!* 🍜🔥
+This suite does not wait an hour to verify actual token expiry, simulate concurrent orders, or assert ownership on GET orders; the supplied reference does not require GET authentication. Advertising `expiresIn: 3600` is checked, but that does not prove expiry enforcement.

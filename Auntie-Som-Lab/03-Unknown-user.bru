@@ -1,0 +1,41 @@
+meta {
+  name: 03 - Unknown user
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/auth/login
+  body: json
+  auth: none
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "username": "unknown-student",
+    "password": "hungry"
+  }
+}
+
+tests {
+  test("Unknown user: correct rejection HTTP status", function () {
+    expect(res.getStatus()).to.be.oneOf([401]);
+  });
+  test("Unknown user: error body cannot masquerade as an order", function () {
+    const data = res.getBody();
+    expect(data).to.be.an("object");
+    expect(data.error).to.be.a("string").and.not.empty;
+    expect(data).not.to.have.property("orderId");
+    expect(data.status).not.to.equal("created");
+  });
+}
+
+docs {
+  Expected rejection and an error payload. For order attempts, a second GET /menu proves there was no stock mutation. Assertion failures are intentional evidence of backend bugs.
+}
+

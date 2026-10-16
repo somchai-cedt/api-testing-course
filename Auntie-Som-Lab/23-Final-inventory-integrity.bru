@@ -1,0 +1,40 @@
+meta {
+  name: 23 - Final inventory integrity
+  type: http
+  seq: 23
+}
+
+get {
+  url: {{baseUrl}}/menu
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+script:post-response {
+  bru.setEnvVar("accessToken", "");
+}
+
+tests {
+  test("All inventory stock values remain integers", function () {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody()).to.be.an("array");
+    res.getBody().forEach(item => {
+      expect(Number.isInteger(item.stock), "integer stock for item " + item.id).to.equal(true);
+    });
+  });
+  test("All inventory stock values remain nonnegative", function () {
+    expect(res.getBody()).to.be.an("array");
+    res.getBody().forEach(item => {
+      expect(item.stock, "nonnegative stock for item " + item.id).to.be.at.least(0);
+    });
+  });
+}
+
+docs {
+  Final invariant and token cleanup. A failed assertion is expected when previous invalid orders corrupted inventory. Restart the original API before a new run.
+}
+

@@ -1,0 +1,36 @@
+meta {
+  name: 09 - Retrieve created order
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{baseUrl}}/orders/{{orderId}}
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+  Authorization: Bearer {{accessToken}}
+}
+
+script:pre-request {
+  if (!bru.getEnvVar("accessToken")) throw new Error("SETUP: run request 01 Login first");
+
+  if (!bru.getVar("orderId")) throw new Error("SETUP: request 08 must create an order first");
+}
+
+tests {
+  test("Stored order has matching ID and created status", function () {
+    expect(res.getStatus()).to.equal(200);
+    const data = res.getBody();
+    expect(data.orderId).to.equal(bru.getVar("orderId"));
+    expect(data.status).to.equal("created");
+    expect(data).not.to.have.property("error");
+  });
+  test("Persisted total is independently correct, not merely equal to the POST response", function () {
+    expect(res.getBody().totalPrice).to.equal(bru.getVar("expectedTotal"));
+  });
+}
+

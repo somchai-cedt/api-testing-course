@@ -1,0 +1,38 @@
+meta {
+  name: 11 - Nonexistent order
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{baseUrl}}/orders/ORD-does-not-exist-lab
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+  Authorization: Bearer {{accessToken}}
+}
+
+script:pre-request {
+  if (!bru.getEnvVar("accessToken")) throw new Error("SETUP: run request 01 Login first");
+}
+
+tests {
+  test("Nonexistent order: correct rejection HTTP status", function () {
+    expect(res.getStatus()).to.be.oneOf([404]);
+  });
+  test("Nonexistent order: error body cannot masquerade as an order", function () {
+    const data = res.getBody();
+    expect(data).to.be.an("object");
+    expect(data.error).to.be.a("string").and.not.empty;
+    expect(data).not.to.have.property("orderId");
+    expect(data.status).not.to.equal("created");
+  });
+}
+
+docs {
+  Expected rejection and an error payload. For order attempts, a second GET /menu proves there was no stock mutation. Assertion failures are intentional evidence of backend bugs.
+}
+

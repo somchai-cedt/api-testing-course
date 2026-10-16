@@ -1,0 +1,83 @@
+meta {
+  name: 08 - Valid order and exact stock boundary
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/orders
+  body: json
+  auth: none
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {"itemId": {{primaryItemId}}, "quantity": {{validQuantity}}}
+}
+
+script:pre-request {
+  if (!bru.getEnvVar("accessToken")) throw new Error("SETUP: run request 01 Login first");
+
+  const menuResponse = await bru.sendRequest({
+    method: "GET", url: bru.getEnvVar("baseUrl") + "/menu", timeout: 10000
+  });
+  if (menuResponse.status !== 200 || !Array.isArray(menuResponse.data)) {
+    throw new Error("SETUP: /menu must return 200 and an array before this scenario");
+  }
+  bru.setVar("beforeMenu", JSON.stringify(menuResponse.data));
+
+  const selected = menuResponse.data.find(x => x.id === Number(bru.getEnvVar("primaryItemId")));
+  const quantity = Number(bru.getEnvVar("validQuantity"));
+  if (!selected || selected.stock !== quantity || !Number.isInteger(quantity) || quantity <= 0) {
+    throw new Error("SETUP: exact-stock scenario needs the fresh fixture; restart the API and rerun all requests");
+  }
+  bru.setVar("expectedTotal", selected.price * quantity);
+  bru.setVar("orderedQuantity", quantity);
+}
+
+script:post-response {
+  const data = res.getBody();
+  if ((res.getStatus() === 200 || res.getStatus() === 201) && data && typeof data.orderId === "string") {
+    bru.setVar("orderId", data.orderId);
+  }
+}
+
+tests {
+  test("Valid order is accepted with created status and an order ID", function () {
+    expect(res.getStatus()).to.be.oneOf([200, 201]);
+    const data = res.getBody();
+    expect(data.orderId).to.match(/^ORD-[a-zA-Z0-9-]+$/);
+    expect(data.status).to.equal("created");
+    expect(data).not.to.have.property("error");
+  });
+  test("DATA INTEGRITY: totalPrice equals menu price times quantity", function () {
+    expect(res.getBody().totalPrice).to.be.a("number");
+    expect(res.getBody().totalPrice).to.equal(bru.getVar("expectedTotal"));
+  });
+
+  const menuAfter = await bru.sendRequest({
+    method: "GET", url: bru.getEnvVar("baseUrl") + "/menu", timeout: 10000
+  });
+  test("Stock verification request succeeds", function () {
+    expect(menuAfter.status).to.equal(200);
+    expect(menuAfter.data).to.be.an("array");
+  });
+
+  test("Successful order deducts exactly its quantity and does not mutate other items", function () {
+    const before = JSON.parse(bru.getVar("beforeMenu"));
+    const expected = before.map(item => item.id === Number(bru.getEnvVar("primaryItemId"))
+      ? Object.assign({}, item, {stock: item.stock - bru.getVar("orderedQuantity")}) : item);
+    expect(menuAfter.data).to.deep.equal(expected);
+    expect(menuAfter.data.find(x => x.id === Number(bru.getEnvVar("primaryItemId"))).stock).to.equal(0);
+  });
+}
+
+docs {
+  Orders the entire stock of item 1. Expected 50 x 2 = 100, computed independently from the pre-order menu. Stores orderId even if the price assertion fails so retrieval can be tested independently.
+}
+

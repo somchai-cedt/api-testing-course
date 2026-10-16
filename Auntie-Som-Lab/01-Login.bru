@@ -1,0 +1,52 @@
+meta {
+  name: 01 - Login
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/auth/login
+  body: json
+  auth: none
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {"username":"{{username}}","password":"{{password}}"}
+}
+
+script:pre-request {
+  if (!bru.getEnvVar("baseUrl")) throw new Error("Select the local environment first");
+  bru.setEnvVar("accessToken", "");
+  bru.setVar("orderId", "");
+  bru.setVar("expectedTotal", null);
+}
+
+script:post-response {
+  const data = res.getBody();
+  if (res.getStatus() === 200 && data && typeof data.accessToken === "string" && data.accessToken.length > 0) {
+    bru.setEnvVar("accessToken", data.accessToken);
+  }
+}
+
+tests {
+  test("Valid credentials return 200", function () { expect(res.getStatus()).to.equal(200); });
+  test("Login returns a usable token and advertised lifetime", function () {
+    const data = res.getBody();
+    expect(data.accessToken).to.be.a("string").and.not.empty;
+    expect(data.expiresIn).to.equal(3600);
+  });
+  test("Post-response script saves the accessToken environment variable", function () {
+    expect(bru.getEnvVar("accessToken")).to.equal(res.getBody().accessToken);
+    expect(bru.getEnvVar("accessToken")).to.be.a("string").and.not.empty;
+  });
+}
+
+docs {
+  Run first. Clears stale state and automatically extracts accessToken in the post-response script. Never paste a token into later requests.
+}
+

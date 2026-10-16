@@ -1,0 +1,5 @@
+Auntie-Som-Lab/environments/local.bru
+Auntie-Som-Lab/reports/
+node_modules/
+__pycache__/
+.venv/
